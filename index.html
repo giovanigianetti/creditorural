@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard MGI MMA-Lista</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tabulator-tables@5.5.2/dist/css/tabulator.min.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="eyebrow">Crédito rural • Brasil</div>
+        <h1>Dashboard MGI MMA-Lista</h1>
+        <p class="muted">
+          Adaptação conservadora da versão original para base agregada por UF e combinações analíticas.
+        </p>
+      </div>
+
+      <div class="control-group">
+        <label for="listaMmaFilter">Filtro geral inicial • Lista MMA</label>
+        <select id="listaMmaFilter" multiple></select>
+        <div class="mini-actions">
+          <button id="selectAllListaMma" class="ghost-btn">Selecionar todos</button>
+          <button id="clearListaMma" class="ghost-btn">Limpar seleção</button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label for="yearFilter">Ano</label>
+        <select id="yearFilter" multiple></select>
+        <div class="mini-actions">
+          <button id="selectAllYears" class="ghost-btn">Selecionar todos</button>
+          <button id="clearYears" class="ghost-btn">Limpar seleção</button>
+        </div>
+      </div>
+
+      <div class="control-group" id="monthFilterGroup">
+        <label for="monthFilter">Meses</label>
+        <div class="disabled-note" id="monthFallbackNote">Base atual sem abertura mensal.</div>
+      </div>
+
+      <div class="control-grid">
+        <div class="control-group">
+          <label for="territoryLevelSelector">Nível territorial</label>
+          <select id="territoryLevelSelector">
+            <option value="uf">UF</option>
+            <option value="regiao">Macrorregião</option>
+            <option value="brasil">Brasil</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label for="territoryFilter" id="territoryFilterLabel">UF de referência</label>
+          <select id="territoryFilter"></select>
+        </div>
+      </div>
+
+      <div class="control-grid">
+        <div class="control-group">
+          <label for="metricSelector">Métrica principal</label>
+          <select id="metricSelector">
+            <option value="valor">Valor de crédito</option>
+            <option value="contratos">Contratos</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label for="countModeSelector">Modo de contagem</label>
+          <select id="countModeSelector" disabled>
+            <option value="contratos" selected>Contratos agregados</option>
+            <option value="unicos" disabled>Contratantes únicos (indisponível)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="control-grid">
+        <div class="control-group">
+          <label for="dimensionSelector">Dimensão analítica</label>
+          <select id="dimensionSelector">
+            <option value="nomeIf">Instituição financeira</option>
+            <option value="programa">Programa</option>
+            <option value="subprograma">Subprograma</option>
+            <option value="finalidade">Finalidade</option>
+            <option value="atividade">Atividade</option>
+            <option value="total">Total</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label for="benchmarkSelector">Benchmark</label>
+          <select id="benchmarkSelector">
+            <option value="ambos">Macrorregião + Brasil</option>
+            <option value="regiao">Macrorregião</option>
+            <option value="brasil">Brasil</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="control-grid">
+        <div class="control-group">
+          <label for="mapMetricSelector">Mapa por</label>
+          <select id="mapMetricSelector">
+            <option value="valor">Valor total</option>
+            <option value="contratos">Contratos</option>
+            <option value="participacao_brasil_valor">Participação no Brasil (valor)</option>
+            <option value="participacao_brasil_contratos">Participação no Brasil (contratos)</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label for="highlightLabelSelector">Label em foco</label>
+          <select id="highlightLabelSelector"></select>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label for="ifFilter">Instituição financeira</label>
+        <select id="ifFilter" multiple></select>
+      </div>
+      <div class="control-group">
+        <label for="programFilter">Programa</label>
+        <select id="programFilter" multiple></select>
+      </div>
+      <div class="control-group">
+        <label for="subprogramFilter">Subprograma</label>
+        <select id="subprogramFilter" multiple></select>
+      </div>
+      <div class="control-group">
+        <label for="finalidadeFilter">Finalidade</label>
+        <select id="finalidadeFilter" multiple></select>
+      </div>
+      <div class="control-group">
+        <label for="atividadeFilter">Atividade</label>
+        <select id="atividadeFilter" multiple></select>
+      </div>
+
+      <div class="sidebar-actions">
+        <button id="clearAllFilters" class="primary-btn">Limpar filtros</button>
+        <button id="exportFilteredData" class="secondary-btn">Exportar dados filtrados</button>
+      </div>
+
+      <div class="method-note">
+        <strong>Compatibilidade da nova base:</strong> a planilha atual já está agregada por UF. <br />
+        O dashboard usa <em>contratos</em> e <em>vl_parc_credito</em> como métricas finais; o modo de contratantes únicos foi desabilitado.
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">Base processada da planilha enviada</div>
+          <h2 id="headerTitle">Visão geral</h2>
+          <p id="headerSubtitle" class="muted"></p>
+        </div>
+        <div class="topbar-actions">
+          <button id="exportSummaryCsv" class="ghost-btn">Tabela analítica CSV</button>
+          <button id="exportSummaryXlsx" class="ghost-btn">Tabela analítica Excel</button>
+        </div>
+      </header>
+
+      <section class="kpi-grid" id="kpiGrid"></section>
+
+      <section class="panel two-col">
+        <div class="panel-card">
+          <div class="panel-header">
+            <h3>Mapa coroplético por UF</h3>
+            <span class="muted">Clique em uma UF para redefinir a referência territorial</span>
+          </div>
+          <div id="mapChart" class="chart-lg"></div>
+        </div>
+        <div class="panel-card">
+          <div class="panel-header">
+            <h3>Ranking de UFs</h3>
+            <span class="muted">Respeita os filtros globais, temporais e categóricos</span>
+          </div>
+          <div id="rankingChart" class="chart-lg"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-card">
+          <div class="panel-header">
+            <h3>Composição da unidade de referência</h3>
+            <span class="muted">Shares internos do território selecionado comparados ao benchmark aplicável e ao Brasil</span>
+          </div>
+          <div id="compositionChart" class="chart-xl"></div>
+        </div>
+      </section>
+
+      <section class="panel two-col">
+        <div class="panel-card">
+          <div class="panel-header">
+            <h3>Representatividade territorial por label</h3>
+            <span class="muted">Participação da unidade de referência dentro do território superior e do Brasil</span>
+          </div>
+          <div id="representativityChart" class="chart-xl"></div>
+        </div>
+        <div class="panel-card">
+          <div class="panel-header">
+            <h3>Comparação entre todas as UFs</h3>
+            <span class="muted">Heatmap de shares internos por UF × categoria</span>
+          </div>
+          <div id="heatmapChart" class="chart-xl"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-card">
+          <div class="panel-header">
+            <h3>Ranking das UFs para o label em foco</h3>
+            <span class="muted">O foco pode ser alterado pelo seletor ou por clique nos gráficos</span>
+          </div>
+          <div id="labelRankingChart" class="chart-xl"></div>
+        </div>
+      </section>
+
+      <section class="panel two-col">
+        <div class="panel-card">
+          <div class="panel-header">
+            <h3>Tabela analítica da dimensão</h3>
+            <span class="muted">Exportável em CSV e Excel</span>
+          </div>
+          <div id="summaryTable"></div>
+        </div>
+        <div class="panel-card">
+          <div class="panel-header">
+            <h3>Prévia dos dados filtrados da unidade selecionada</h3>
+            <span class="muted">Prévia de 500 linhas agregadas; a exportação usa o conjunto completo filtrado</span>
+          </div>
+          <div id="rawTable"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-card">
+          <div class="panel-header">
+            <h3>Validações e documentação</h3>
+            <span class="muted">Checagens automáticas do processamento e das regras compatíveis com a nova base agregada</span>
+          </div>
+          <div id="validationBox" class="validation-box"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="loadingOverlay" class="loading-overlay hidden">Atualizando dashboard…</div>
+
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
