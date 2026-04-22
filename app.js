@@ -39,8 +39,16 @@ let rawTable = null;
 let topojsonData = null;
 let geojsonUF = null;
 const ufToRegion = new Map();
+const ufNameToSigla = new Map();
 
 function $(id){ return document.getElementById(id); }
+function normalizeText(value){
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
 function formatBRL(v){
   if (v == null || Number.isNaN(v) || !Number.isFinite(v)) return "—";
   return new Intl.NumberFormat("pt-BR", {style:"currency", currency:"BRL", maximumFractionDigits:2}).format(v);
@@ -117,6 +125,22 @@ function getParentBenchmarkName(){
   if (state.territoryLevel === "uf") return getParentRegionByUf(state.selectedTerritory);
   return null;
 }
+function createNativeMultiSelectAdapter(select){
+  return {
+    destroy(){},
+    getValue(raw){
+      const values = [...select.options].filter(opt => opt.selected).map(opt => opt.value);
+      return raw ? values : values.map(value => ({ value }));
+    },
+    removeActiveItems(){
+      [...select.options].forEach(opt => { opt.selected = false; });
+    },
+    setChoiceByValue(values){
+      const selected = new Set(Array.isArray(values) ? values : [values]);
+      [...select.options].forEach(opt => { opt.selected = selected.has(opt.value); });
+    }
+  };
+}
 function buildOptions(selectId, values, selectedValues, placeholder){
   const select = $(selectId);
   select.innerHTML = "";
@@ -127,16 +151,21 @@ function buildOptions(selectId, values, selectedValues, placeholder){
     if (selectedValues && selectedValues.includes(v)) opt.selected = true;
     select.appendChild(opt);
   });
-  if (controls[selectId]) controls[selectId].destroy();
-  controls[selectId] = new Choices(select, {
-    removeItemButton: true,
-    shouldSort: false,
-    placeholder: !!placeholder,
-    placeholderValue: placeholder || "",
-    searchResultLimit: 50,
-    renderChoiceLimit: 500,
-    itemSelectText: "",
-  });
+  if (controls[selectId] && controls[selectId].destroy) controls[selectId].destroy();
+  if (window.Choices) {
+    controls[selectId] = new Choices(select, {
+      removeItemButton: true,
+      shouldSort: false,
+      placeholder: !!placeholder,
+      placeholderValue: placeholder || "",
+      searchResultLimit: 50,
+      renderChoiceLimit: 500,
+      itemSelectText: "",
+    });
+  } else {
+    if (placeholder) select.setAttribute("title", placeholder);
+    controls[selectId] = createNativeMultiSelectAdapter(select);
+  }
 }
 function buildSingleSelect(selectId, values, selectedValue){
   const select = $(selectId);
@@ -153,8 +182,27 @@ function initMappings(){
   for (let i = 0; i < DATA.cols.uf.length; i++) {
     const uf = DATA.dims.uf[DATA.cols.uf[i]];
     const reg = DATA.dims.regiao[DATA.cols.regiao[i]];
+    const sigla = DATA.cols.ufSigla[i];
     if (!ufToRegion.has(uf)) ufToRegion.set(uf, reg);
+    if (sigla && !ufNameToSigla.has(normalizeText(uf))) ufNameToSigla.set(normalizeText(uf), sigla);
   }
+}
+function resolveTopoObject(topoData){
+  if (!topoData || !topoData.objects) return null;
+  if (topoData.objects[TOPONAME]) return topoData.objects[TOPONAME];
+  if (topoData.objects.estados) return topoData.objects.estados;
+  const values = Object.values(topoData.objects);
+  return values.length ? values[0] : null;
+}
+function enrichGeojsonFeatures(geojson){
+  if (!geojson || !Array.isArray(geojson.features)) return geojson;
+  geojson.features.forEach(feature => {
+    const props = feature.properties || (feature.properties = {});
+    const rawName = props.nome || props.name || props.NOME_UF || props.uf || "";
+    const sigla = props.sigla || props.SIGLA_UF || ufNameToSigla.get(normalizeText(rawName)) || "";
+    if (sigla) props.sigla = sigla;
+  });
+  return geojson;
 }
 function initDom(){
   buildOptions("listaMmaFilter", DATA.dims.listaMma, DATA.dims.listaMma, "Selecione o(s) recorte(s) Lista MMA");
@@ -264,21 +312,74 @@ function updateBenchmarkControl(){
     el.value = "brasil";
   }
 }
+function createHtmlTableAdapter(containerId){
+  const container = $(containerId.replace("#", ""));
+  const adapter = {
+    columns: [],
+    data: [],
+    setColumns(columns){
+      this.columns = columns || [];
+      this.render();
+    },
+    setData(data){
+      this.data = data || [];
+      this.render();
+    },
+    render(){
+      const cols = this.columns || [];
+      const rows = this.data || [];
+      if (!cols.length) {
+        container.innerHTML = '<div class="chart-fallback">Sem dados para exibir.</div>';
+        return;
+      }
+      const head = `<thead><tr>${cols.map(col => `<th>${col.title || ''}</th>`).join('')}</tr></thead>`;
+      const bodyRows = rows.length ? rows.map(row => `<tr>${cols.map(col => {
+        const value = row[col.field];
+        let rendered = value ?? '';
+        if (typeof col.formatter === 'function') {
+          rendered = col.formatter({ getValue: () => value });
+        }
+        return `<td>${rendered ?? ''}</td>`;
+      }).join('')}</tr>`).join('') : `<tr><td colspan="${cols.length}">Sem dados para exibir.</td></tr>`;
+      container.innerHTML = `<div class="table-fallback-wrap"><table class="table-fallback">${head}<tbody>${bodyRows}</tbody></table></div>`;
+    },
+    download(type, filename){
+      const cols = this.columns || [];
+      const rows = this.data || [];
+      const header = cols.map(col => `"${String(col.title || '').replace(/"/g, '""')}"`).join(',');
+      const body = rows.map(row => cols.map(col => `"${String(row[col.field] ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+      const csv = [header, body].filter(Boolean).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'export.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+  return adapter;
+}
 function initTables(){
-  summaryTable = new Tabulator("#summaryTable", {
-    layout: "fitColumns",
-    height: 560,
-    data: [],
-    columns: [],
-    placeholder: "Sem dados para exibir.",
-  });
-  rawTable = new Tabulator("#rawTable", {
-    layout: "fitDataStretch",
-    height: 560,
-    data: [],
-    columns: [],
-    placeholder: "Sem dados para exibir.",
-  });
+  if (window.Tabulator) {
+    summaryTable = new Tabulator("#summaryTable", {
+      layout: "fitColumns",
+      height: 560,
+      data: [],
+      columns: [],
+      placeholder: "Sem dados para exibir.",
+    });
+    rawTable = new Tabulator("#rawTable", {
+      layout: "fitDataStretch",
+      height: 560,
+      data: [],
+      columns: [],
+      placeholder: "Sem dados para exibir.",
+    });
+  } else {
+    summaryTable = createHtmlTableAdapter("summaryTable");
+    rawTable = createHtmlTableAdapter("rawTable");
+  }
 }
 function getFilterSets(){
   return {
@@ -467,15 +568,15 @@ function updateHeader(ctx){
   $("headerSubtitle").textContent = `${ctx.referenceLevelLabel} de referência • ${years.length} ano(s) selecionado(s) • ${lista.length} recorte(s) Lista MMA • métrica principal: ${currentMetricLabel().toLowerCase()}.`;
 }
 function renderMap(ctx){
+  if (!geojsonUF || !Array.isArray(geojsonUF.features) || !geojsonUF.features.length) {
+    $("mapChart").innerHTML = `<div class="chart-fallback">Não foi possível carregar a camada cartográfica das UFs. Os demais painéis continuam funcionais.</div>`;
+    return;
+  }
   const aggValue = aggregateBy(ctx.brasilIndices, i => DATA.cols.ufSigla[i], "valor");
   const aggContracts = aggregateBy(ctx.brasilIndices, i => DATA.cols.ufSigla[i], "contratos");
   const locations = [];
   const z = [];
   const text = [];
-  DATA.dims.uf.forEach(uf => {
-    const sigla = Object.entries(DATA.validation.filters.ufs || {}).length ? null : null;
-  });
-  const ufList = Array.from(new Set(DATA.cols.ufSigla));
   const labelMap = new Map();
   for (let i = 0; i < DATA.cols.uf.length; i++) {
     labelMap.set(DATA.cols.ufSigla[i], DATA.dims.uf[DATA.cols.uf[i]]);
@@ -780,9 +881,17 @@ function exportFilteredData(){
   XLSX.writeFile(wb, `dados_filtrados_${slugify(state.selectedTerritory)}.xlsx`);
 }
 async function loadTopo(){
-  const resp = await fetch(TOPO_URL);
-  topojsonData = await resp.json();
-  geojsonUF = topojson.feature(topojsonData, topojsonData.objects[TOPONAME]);
+  try {
+    const resp = await fetch(TOPO_URL);
+    topojsonData = await resp.json();
+    const topoObject = resolveTopoObject(topojsonData);
+    if (!topoObject) throw new Error("Estrutura topojson sem objeto de estados identificável.");
+    geojsonUF = enrichGeojsonFeatures(topojson.feature(topojsonData, topoObject));
+  } catch (err) {
+    console.error("Falha ao carregar o mapa das UFs:", err);
+    topojsonData = null;
+    geojsonUF = null;
+  }
 }
 async function refreshDashboard(){
   showLoading(true);
@@ -815,9 +924,17 @@ async function refreshDashboard(){
   }
 }
 async function boot(){
-  initMappings();
-  await loadTopo();
-  initDom();
-  refreshDashboard();
+  try {
+    initMappings();
+    await loadTopo();
+    initDom();
+    await refreshDashboard();
+  } catch (err) {
+    console.error("Falha na inicialização do dashboard:", err);
+    const box = $("validationBox");
+    if (box) {
+      box.innerHTML = `<div class="validation-item"><h4>Erro de inicialização</h4><p>${String(err && err.message || err)}</p></div>`;
+    }
+  }
 }
 boot();
